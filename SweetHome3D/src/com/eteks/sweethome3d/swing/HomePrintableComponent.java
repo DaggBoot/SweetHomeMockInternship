@@ -118,7 +118,6 @@ public class HomePrintableComponent extends JComponent implements Printable {
   private JLabel               fixedFooterLabel;
   private JLabel               fixedFirstPageHeaderLabel;
   private JLabel               fixedFirstPageFooterLabel;
-  private Map<Level, Integer>  planPageCounts = new HashMap<Level, Integer>();
   /**
    * Creates a printable component that will print or display the
    * furniture view, the plan view and 3D view of the <code>home</code> 
@@ -390,21 +389,7 @@ public class HomePrintableComponent extends JComponent implements Printable {
       && planView != null
       && (homePrint == null || homePrint.isPlanPrinted())) {
       int planPageIndex = page - this.furniturePageCount;
-      if (this.home.getLevels().isEmpty()) {
-        pageExists = ((Printable)planView).print(g2D, pageFormat, planPageIndex);
-      } else {
-        for (Level level : this.home.getLevels()) {
-          if (level.isViewable()) {
-            this.home.setSelectedLevel(level);
-            int levelPageCount = getPlanPageCount(level, (Printable)planView, pageFormat);
-            if (planPageIndex < levelPageCount) {
-              pageExists = ((Printable)planView).print(g2D, pageFormat, planPageIndex);
-              break;
-            }
-            planPageIndex -= levelPageCount;
-          }
-        }
-      }
+      pageExists = ((Printable)planView).print(g2D, pageFormat, planPageIndex);
       if (pageExists == PAGE_EXISTS
         && !this.printablePages.contains(page)) {
         this.printablePages.add(page);
@@ -447,26 +432,6 @@ public class HomePrintableComponent extends JComponent implements Printable {
     }  
     pageFormat.setPaper(oldPaper);    
     return pageExists;
-  }
-
-  private int getPlanPageCount(Level level, Printable planView, PageFormat pageFormat) throws PrinterException {
-    Integer count = this.planPageCounts.get(level);
-    if (count == null) {
-      BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
-      Graphics2D dummyGraphics = (Graphics2D)image.getGraphics();
-      try {
-        int pages = 0;
-        while (planView.print(dummyGraphics, pageFormat, pages) == PAGE_EXISTS) {
-          pages++;
-          System.out.println("plan page for level " + level.getName());
-        }
-        count = pages;
-      } finally {
-        dummyGraphics.dispose();
-      }
-      this.planPageCounts.put(level, count);
-    }
-    return count;
   }
 
   /**
