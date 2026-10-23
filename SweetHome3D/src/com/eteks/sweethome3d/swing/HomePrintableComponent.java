@@ -19,14 +19,7 @@
  */
 package com.eteks.sweethome3d.swing;
 
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.Insets;
-import java.awt.Rectangle;
+import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
@@ -35,22 +28,16 @@ import java.awt.print.Paper;
 import java.awt.print.Printable;
 import java.awt.print.PrinterException;
 import java.awt.print.PrinterJob;
+import java.lang.reflect.InvocationTargetException;
 import java.security.AccessControlException;
 import java.text.MessageFormat;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.MissingResourceException;
-import java.util.ResourceBundle;
-import java.util.Set;
+import java.util.*;
+import java.util.List;
 
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 
-import com.eteks.sweethome3d.model.Home;
-import com.eteks.sweethome3d.model.HomePieceOfFurniture;
-import com.eteks.sweethome3d.model.HomePrint;
-import com.eteks.sweethome3d.model.LengthUnit;
-import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.*;
 import com.eteks.sweethome3d.viewcontroller.ContentManager;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 import com.eteks.sweethome3d.viewcontroller.PlanView;
@@ -131,7 +118,7 @@ public class HomePrintableComponent extends JComponent implements Printable {
   private JLabel               fixedFooterLabel;
   private JLabel               fixedFirstPageHeaderLabel;
   private JLabel               fixedFirstPageFooterLabel;
-  
+  private Map<Level, Integer>  planPageCounts = new HashMap<Level, Integer>();
   /**
    * Creates a printable component that will print or display the
    * furniture view, the plan view and 3D view of the <code>home</code> 
@@ -142,7 +129,7 @@ public class HomePrintableComponent extends JComponent implements Printable {
     this.controller = controller;
     this.defaultFont = defaultFont;
     this.headerFooterFont = defaultFont.deriveFont(11f);
-    
+
     try {
       ResourceBundle resource = ResourceBundle.getBundle(HomePrintableComponent.class.getName());
       this.fixedHeaderLabel = getFixedHeaderOrFooterLabel(resource, "fixedHeader");
@@ -177,11 +164,58 @@ public class HomePrintableComponent extends JComponent implements Printable {
       return null;
     }
   }
-  
+
   /**
    * Prints a given <code>page</code>.
    */
-  public int print(Graphics g, PageFormat pageFormat, int page) throws PrinterException {
+  public int print(final Graphics g, final PageFormat pageFormat, final int page) throws PrinterException {
+    if (!EventQueue.isDispatchThread()) {
+      class RunnableContext {
+        int pageExists;
+        PrinterException exception;
+      }
+      final RunnableContext context = new RunnableContext();
+      try {
+        EventQueue.invokeAndWait(new Runnable() {
+          public void run() {
+            try {
+              context.pageExists = print(g, pageFormat, page);
+            } catch (PrinterException ex) {
+              context.exception = ex;
+            }
+          }
+        });
+      } catch (InterruptedException ex) {
+        throw new InterruptedPrinterException("Print interrupted");
+      } catch (InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+      if (context.exception != null) {
+        throw context.exception;
+      }
+      return context.pageExists;
+    }
+
+    Level selectedLevel = this.home.getSelectedLevel();
+    List<Selectable> selectedItems = new ArrayList<>(this.home.getSelectedItems());
+    boolean allLevelsSelection = this.home.isAllLevelsSelection();
+    try {
+      return printPage(g, pageFormat, page);
+    } finally {
+      if (this.home.getSelectedLevel() != selectedLevel) {
+        this.home.setSelectedLevel(selectedLevel);
+      }
+      if (!this.home.getSelectedItems().equals(selectedItems)) {
+        this.home.setSelectedItems(selectedItems);
+      }
+      this.home.setAllLevelsSelection(allLevelsSelection);
+    }
+  }
+
+  /**
+   * The logic behind the printing of a given <code>page</code>.
+   */
+  private int printPage(Graphics g, PageFormat pageFormat, int page) throws PrinterException {
     // Check current thread isn't interrupted
     if (Thread.interrupted()) {
       throw new InterruptedPrinterException();
@@ -341,49 +375,38 @@ public class HomePrintableComponent extends JComponent implements Printable {
             clipBounds.width, (int)pageFormat.getImageableHeight());
       }
     }
-    
+
     View furnitureView = this.controller.getFurnitureController().getView();
-    if (furnitureView != null 
-        && (homePrint == null || homePrint.isFurniturePrinted())) {
-      FurnitureTable furnitureTable = null;
-      final FurnitureTable.FurnitureFilter furnitureFilter;
-      if (furnitureView instanceof FurnitureTable
-          && (homePrint == null
-              || homePrint.isPlanPrinted()
-              || homePrint.isView3DPrinted())) {
-        final Level selectedLevel = home.getSelectedLevel();
-        furnitureTable = (FurnitureTable)furnitureView;
-        furnitureFilter = furnitureTable.getFurnitureFilter();
-        furnitureTable.setFurnitureFilter(new FurnitureTable.FurnitureFilter() {
-            public boolean include(Home home, HomePieceOfFurniture piece) {
-              // Print only furniture at selected level when the plan or the 3D view is printed
-              return (furnitureFilter == null || furnitureFilter.include(home, piece))
-                  && piece.isAtLevel(selectedLevel)
-                  && (piece.getLevel() == null || piece.getLevel().isViewable());
-            }
-          });
-      } else {
-        furnitureFilter = null;
-      }
-      // Try to print next furniture view page      
+    if (furnitureView != null
+      && (homePrint == null || homePrint.isFurniturePrinted())) {
       pageExists = ((Printable)furnitureView).print(g2D, pageFormat, page);
-      if (furnitureTable != null) {
-        // Restore previous filter
-        ((FurnitureTable)furnitureView).setFurnitureFilter(furnitureFilter);
-      }
       if (pageExists == PAGE_EXISTS
-          && !this.printablePages.contains(page)) {
+        && !this.printablePages.contains(page)) {
         this.printablePages.add(page);
         this.furniturePageCount++;
       }
     }
-    if (pageExists == NO_SUCH_PAGE 
-        && planView != null 
-        && (homePrint == null || homePrint.isPlanPrinted())) {
-      // Try to print next plan view page
-      pageExists = ((Printable)planView).print(g2D, pageFormat, page - this.furniturePageCount);
+    if (pageExists == NO_SUCH_PAGE
+      && planView != null
+      && (homePrint == null || homePrint.isPlanPrinted())) {
+      int planPageIndex = page - this.furniturePageCount;
+      if (this.home.getLevels().isEmpty()) {
+        pageExists = ((Printable)planView).print(g2D, pageFormat, planPageIndex);
+      } else {
+        for (Level level : this.home.getLevels()) {
+          if (level.isViewable()) {
+            this.home.setSelectedLevel(level);
+            int levelPageCount = getPlanPageCount(level, (Printable)planView, pageFormat);
+            if (planPageIndex < levelPageCount) {
+              pageExists = ((Printable)planView).print(g2D, pageFormat, planPageIndex);
+              break;
+            }
+            planPageIndex -= levelPageCount;
+          }
+        }
+      }
       if (pageExists == PAGE_EXISTS
-          && !this.printablePages.contains(page)) {
+        && !this.printablePages.contains(page)) {
         this.printablePages.add(page);
         this.planPageCount++;
       }
@@ -424,6 +447,26 @@ public class HomePrintableComponent extends JComponent implements Printable {
     }  
     pageFormat.setPaper(oldPaper);    
     return pageExists;
+  }
+
+  private int getPlanPageCount(Level level, Printable planView, PageFormat pageFormat) throws PrinterException {
+    Integer count = this.planPageCounts.get(level);
+    if (count == null) {
+      BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+      Graphics2D dummyGraphics = (Graphics2D)image.getGraphics();
+      try {
+        int pages = 0;
+        while (planView.print(dummyGraphics, pageFormat, pages) == PAGE_EXISTS) {
+          pages++;
+          System.out.println("plan page for level " + level.getName());
+        }
+        count = pages;
+      } finally {
+        dummyGraphics.dispose();
+      }
+      this.planPageCounts.put(level, count);
+    }
+    return count;
   }
 
   /**
