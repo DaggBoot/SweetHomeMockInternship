@@ -161,6 +161,10 @@ public class DefaultFurnitureCatalog extends FurnitureCatalog {
      */
     HEIGHT("height"),
     /**
+     * The key for the volume in centimeters cubed of a piece of furniture (mandatory).
+     */
+    VOLUME("volume"),
+    /**
      * The key for the movability of a piece of furniture (mandatory).
      * If the value of this key is <code>true</code>, the piece of furniture
      * will be considered as a movable piece. 
@@ -651,7 +655,7 @@ public class DefaultFurnitureCatalog extends FurnitureCatalog {
     } else {
       LightSource [] lightSources = getLightSources(resource, index, width, depth, height);
       if (lightSources != null) {
-        return new CatalogLight(id, name, description, information, tags, creationDate, grade, 
+        return new CatalogLight(id, name, description, information, tags, creationDate, grade,
             icon, planIcon, model, width, depth, height, elevation, dropOnTopElevation, movable, 
             lightSources, staircaseCutOutShape, modelRotation, false, creator, 
             resizable, deformable, texturable, price, valueAddedTaxPercentage, currency);
